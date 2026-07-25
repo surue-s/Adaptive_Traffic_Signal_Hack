@@ -107,6 +107,9 @@ def counts_for_direction(
     has_lanes = bool(lanes_by_id)
 
     vehicle_count = 0
+    vehicles_straight = 0
+    vehicles_left = 0
+    vehicles_right = 0
     pedestrian_count = 0
     waiting_vehicles = 0
     waiting_pedestrians = 0
@@ -121,12 +124,21 @@ def counts_for_direction(
             if not has_lanes:
                 # Whole-frame fallback (no lanes drawn)
                 vehicle_count += 1
+                vehicles_straight += 1
                 if d["state"] == "waiting":
                     waiting_vehicles += 1
             else:
                 lane = lanes_by_id.get(d["lane_id"])
                 if lane and lane.get("travel") == "incoming" and lane.get("focus", True):
                     vehicle_count += 1
+                    turn = lane.get("turn", "Straight")
+                    if turn == "Straight":
+                        vehicles_straight += 1
+                    elif turn == "Left":
+                        vehicles_left += 1
+                    elif turn == "Right":
+                        vehicles_right += 1
+                        
                     if d["state"] == "waiting":
                         waiting_vehicles += 1
 
@@ -142,6 +154,9 @@ def counts_for_direction(
 
     return {
         "vehicle": vehicle_count,
+        "vehicles_straight": vehicles_straight,
+        "vehicles_left": vehicles_left,
+        "vehicles_right": vehicles_right,
         "pedestrian": pedestrian_count,
         "waiting_vehicles": waiting_vehicles,
         "waiting_pedestrians": waiting_pedestrians,

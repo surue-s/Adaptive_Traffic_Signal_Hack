@@ -217,11 +217,11 @@ def annotation_panel(direction: str) -> None:
         shape_label, draw_mode = "count_line", "line"
 
     # ── Lane properties ────────────────────────────────────────────────────
-    lane_id = side = travel = None
+    lane_id = side = travel = turn = None
     is_focus = False
     if shape_label == "lane":
         _section_label("VECTOR METADATA")
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3, c4, c5 = st.columns(5)
         with c1:
             lane_id = st.text_input(
                 "LANE DESIGNATION",
@@ -234,6 +234,9 @@ def annotation_panel(direction: str) -> None:
             travel = st.selectbox("VECTOR FLOW", ["incoming", "outgoing"],
                                   key=f"travel_{direction}")
         with c4:
+            turn = st.selectbox("ROUTING", ["Straight", "Left", "Right"], key=f"turn_{direction}")
+        with c5:
+            st.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
             is_focus = st.checkbox("PRIMARY FOCUS", value=True, key=f"focus_{direction}")
 
     # ── The pen-tool canvas (one-click save) ──────────────────────────────
@@ -263,6 +266,7 @@ def annotation_panel(direction: str) -> None:
                         "id": lane_id or f"{direction}_lane_{len(cfg['shapes']) + 1}",
                         "side": side or direction,
                         "travel": travel or "incoming",
+                        "turn": turn or "Straight",
                         "focus": is_focus,
                     })
                 cfg["shapes"].append(entry)
@@ -280,7 +284,8 @@ def annotation_panel(direction: str) -> None:
     else:
         for i, s in enumerate(cfg["shapes"]):
             if s["label"] == "lane":
-                desc = (f"{s.get('id','?')} · {s.get('side','?')}/{s.get('travel','?')}"
+                turn_str = f" / {s.get('turn', 'Straight').upper()}" if s.get('travel') == 'incoming' else ""
+                desc = (f"{s.get('id','?')} · {s.get('side','?')}/{s.get('travel','?')}{turn_str}"
                         f"{'  [FOCAL]' if s.get('focus') else ''}")
             elif s["label"] == "zebra_crossing":
                 desc = f"ZEBRA CROSSING ({len(s['points'])} NODES)"

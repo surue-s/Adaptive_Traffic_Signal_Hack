@@ -68,7 +68,19 @@ def _direction_cell(d: str) -> None:
         if cfg["frame"] is not None:
             h, w = cfg["frame"].shape[:2]
             thumb = cv2.resize(cfg["frame"], (max(int(w * 90 / h), 1), 90))
+            rotation = cfg.get("rotation", 0)
+            if rotation == 90:
+                thumb = cv2.rotate(thumb, cv2.ROTATE_90_CLOCKWISE)
+            elif rotation == 180:
+                thumb = cv2.rotate(thumb, cv2.ROTATE_180)
+            elif rotation == 270 or rotation == -90:
+                thumb = cv2.rotate(thumb, cv2.ROTATE_90_COUNTERCLOCKWISE)
             st.image(cv2.cvtColor(thumb, cv2.COLOR_BGR2RGB), width="stretch")
+            
+            new_rot = st.selectbox("Feed Orientation", [0, 90, 180, 270], index=[0, 90, 180, 270].index(rotation if rotation != -90 else 270), key=f"rot_{d}", format_func=lambda x: f"{x}°", label_visibility="collapsed")
+            if new_rot != rotation:
+                st.session_state.config[d]["rotation"] = new_rot
+                st.rerun()
 
         b1, b2 = st.columns(2)
         with b1:

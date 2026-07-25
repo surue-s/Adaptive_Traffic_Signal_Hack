@@ -109,8 +109,19 @@ def _process_loop(direction, source, model_name, tracker, conf, imgsz, speed_thr
             if not shared.alive.get(direction, False):
                 break
             playing = shared.running.get(direction, False)
+            sig_straight = shared.signal.get(f"{direction}_straight", "red")
+            sig_turn = shared.signal.get(f"{direction}_turn", "red")
+            
+            if sig_straight == "green" or sig_turn == "green":
+                sig_display = "green"
+            elif sig_straight == "yellow" or sig_turn == "yellow":
+                sig_display = "yellow"
+            else:
+                sig_display = "red"
+                
+            has_counted = direction in shared.counts
 
-        if not playing:                            # paused — hold position, idle
+        if not playing or (has_counted and sig_display in ("red", "flashing_red") and not is_image):
             time.sleep(0.05)
             continue
 
@@ -130,11 +141,13 @@ def _process_loop(direction, source, model_name, tracker, conf, imgsz, speed_thr
         counts = counts_for_direction(dets, shapes)
 
         with shared.lock:
-            sig = shared.signal.get(direction, "red")
+            sig_straight = shared.signal.get(f"{direction}_straight", "red")
+            sig_turn = shared.signal.get(f"{direction}_turn", "red")
+            sig_display = "green" if "green" in (sig_straight, sig_turn) else "yellow" if "yellow" in (sig_straight, sig_turn) else "red"
 
         annotated = annotate_frame(frame, dets, shapes)
         cv2.circle(annotated, (30, 30), 14, (18, 22, 30), -1)
-        cv2.circle(annotated, (30, 30), 9, _LAMP_BGR.get(sig, _LAMP_BGR["red"]), -1)
+        cv2.circle(annotated, (30, 30), 9, _LAMP_BGR.get(sig_display, _LAMP_BGR["red"]), -1)
         for det in dets:
             if det["category"] == "pedestrian" and det.get("ped_wait_time", 0) > 1:
                 x = int(det["center"][0]) - 30

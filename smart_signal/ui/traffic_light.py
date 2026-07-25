@@ -12,11 +12,14 @@ def effective_lamp(state: str, remaining: float = None) -> str:
     """Green flips to yellow in the last 3 seconds before a phase change."""
     if state == "green" and remaining is not None and remaining < 3.0:
         return "yellow"
-    return state if state in SIGNAL_COLORS else "red"
+    base = state.replace("flashing_", "")
+    return state if base in SIGNAL_COLORS else "red"
 
 def traffic_light_html(state: str, scale: float = 1.0, horizontal: bool = False) -> str:
     """Return HTML for a geometric Art Deco signal housing with vintage incandescent glow."""
-    state = state if state in SIGNAL_COLORS else "red"
+    base_state = state.replace("flashing_", "")
+    base_state = base_state if base_state in SIGNAL_COLORS else "red"
+    is_flashing = "flashing_" in state
     
     # Calibrated base dimensions
     lamp = int(18 * scale)
@@ -26,9 +29,10 @@ def traffic_light_html(state: str, scale: float = 1.0, horizontal: bool = False)
 
     lamps_html = ""
     for name in ("red", "yellow", "green"):
-        on = name == state
+        on = (name == base_state)
         bright, main, off_base, off_dark = SIGNAL_COLORS[name]
         
+        anim = ""
         if on:
             # Art Deco glass glow: intense warm core, rich saturated halo
             bg = f"radial-gradient(circle at 50% 50%, {bright} 10%, {main} 60%, {off_dark} 100%)"
@@ -38,6 +42,8 @@ def traffic_light_html(state: str, scale: float = 1.0, horizontal: bool = False)
                 f"0 0 {int(25*scale)}px {int(6*scale)}px {main}55, "
                 f"inset 0 0 {int(4*scale)}px rgba(0,0,0,0.6);"
             )
+            if is_flashing:
+                anim = "animation: ss-flash 1s infinite alternate;"
         else:
             # Inactive dark jewel tone
             bg = f"linear-gradient(135deg, {off_base} 0%, {off_dark} 100%)"
@@ -51,7 +57,7 @@ def traffic_light_html(state: str, scale: float = 1.0, horizontal: bool = False)
             f'<div style="width:{lamp}px; height:{lamp}px; border-radius:50%; '
             f'background:{bg}; {glow} '
             f'border: {border_w}px solid #D4AF37; '
-            f'position: relative; '
+            f'position: relative; {anim} '
             f'transition: background 0.2s ease, box-shadow 0.2s ease;">'
             f'</div>'
         )

@@ -11,7 +11,7 @@ import time
 import streamlit as st
 
 from config.constants import DIRECTIONS, DIR_META
-from engine.decision_flow import DecisionFlow, MAX_HOLD_TIME, YELLOW_TIME, MIN_GREEN_TIME
+from engine.decision_flow import DecisionFlow, MAX_HOLD_TIME, YELLOW_TIME, MIN_GREEN_TIME, ALL_RED_TIME, PHASES
 from theme.tokens import C, F_DISPLAY, F_BODY
 from ui.traffic_light import traffic_light_html
 from video import live_stream as ls
@@ -105,6 +105,7 @@ def _inject_dashboard_css() -> None:
           ::-webkit-scrollbar {{ width: 8px; height: 8px; }}
           ::-webkit-scrollbar-track {{ background: {C['bg']}; border-left: 1px solid {C['border']}; }}
           ::-webkit-scrollbar-thumb {{ background: {C['border-h']}; border-radius: 0px; }}
+          @keyframes ss-flash {{ 0% {{ opacity: 1; }} 100% {{ opacity: 0.3; }} }}
         </style>
         """,
         unsafe_allow_html=True,
@@ -122,7 +123,7 @@ def _rail_header(label: str) -> None:
     )
 
 
-def _live_dock(direction: str, port: int, h_vh: int) -> str:
+def _live_dock(direction: str, port: int, h_vh: int, rotation: int = 0) -> str:
     """A camera monitor: full frame visible (contain), viewfinder corner brackets."""
     meta = DIR_META[direction]
     url = f"http://127.0.0.1:{port}/video?dir={direction}"
@@ -131,7 +132,7 @@ def _live_dock(direction: str, port: int, h_vh: int) -> str:
         f'<div class="ss-dock" style="height:{h_vh}vh;position:relative;border-radius:0px;overflow:hidden;'
         f'border:1px solid {C["border-h"]};background:#000;'
         f'box-shadow:0 0 0 1px rgba(212,175,55,0.12), 0 10px 28px rgba(0,0,0,0.65);">'
-        f'<img src="{url}" style="width:100%;height:100%;object-fit:contain;display:block;background:#000;"/>'
+        f'<img src="{url}" style="width:100%;height:100%;object-fit:contain;display:block;background:#000;transform:rotate({rotation}deg);"/>'
         # top OSD strip
         f'<div style="position:absolute;top:0;left:0;right:0;display:flex;align-items:center;'
         f'justify-content:space-between;padding:7px 14px;pointer-events:none;'
@@ -181,8 +182,10 @@ def _empty(msg: str) -> str:
     )
 
 def _label(d):
-    return DIR_META.get(d, {}).get("label", str(d).upper()) if d else "—"
-def _decision_rail(result) -> str:
+    if not d: return "—"
+    if "-" in d: return d.replace("-", " & ").upper()
+    return DIR_META.get(d, {}).get("label", str(d).upper())
+def _decision_rail(result, counts_by_dir=None) -> str:
     dec = result["decision"] if "decision" in result else result
     cur = dec.get("current_dir")
     phase = dec.get("phase", "green")
@@ -194,15 +197,47 @@ def _decision_rail(result) -> str:
     signal_state = dec.get("signal_state", {})
 
     is_yellow = phase == "yellow"
-    light = traffic_light_html("yellow" if is_yellow else "green", scale=1.15)
-
+    is_all_red = phase == "all_red"
     if is_yellow:
+        light_state = "yellow"
+    elif is_all_red:
+        light_state = "red"
+    else:
+        light_state = "green"
+        
+    op_mode = st.session_state.get("op_mode", "AUTO")
+    if op_mode == "POWER_OUTAGE":
+        light_state = "flashing_red"
+    
+    light = traffic_light_html(light_state, scale=1.15)
+
+    if op_mode == "POWER_OUTAGE":
+        title = f'SYSTEM OFFLINE'
+        title_color = C["ruby"]
+        subtitle = f'POWER OUTAGE · 4-WAY FLASHING RED'
+        bar_pct = 100
+        bar_color = C["ruby"]
+    elif op_mode == "NIGHT":
+        title = f'NIGHT MODE'
+        title_color = C["topaz"]
+        subtitle = f'FLASHING AMBER (MAIN) / RED (MINOR)'
+        bar_pct = 100
+        bar_color = C["topaz"]
+    elif is_yellow:
         yellow_remaining = max(0.0, YELLOW_TIME - yellow_timer)
         title = f'{DIR_META.get(cur, {}).get("arrow", "")} {_label(cur)} · CLEARING'
         title_color = C["topaz"]
         subtitle = f'CHANGING TO {_label(pending)} · {yellow_remaining:.0f}s'
         bar_pct = min(yellow_timer / YELLOW_TIME, 1.0) * 100
         bar_color = C["topaz"]
+    elif is_all_red:
+        all_red_timer = dec.get("all_red_timer", 0.0)
+        red_remaining = max(0.0, ALL_RED_TIME - all_red_timer)
+        title = f'ALL-RED CLEARANCE'
+        title_color = C["ruby"]
+        subtitle = f'CHANGING TO {_label(pending)} · {red_remaining:.0f}s'
+        bar_pct = min(all_red_timer / ALL_RED_TIME, 1.0) * 100
+        bar_color = C["ruby"]
     else:
         held_disp = min(held, MAX_HOLD_TIME)
         title = f'{DIR_META.get(cur, {}).get("arrow", "")} {_label(cur)}'
@@ -226,64 +261,98 @@ def _decision_rail(result) -> str:
         f'{dec.get("last_reason", "")}</div></div>'
     )
 
-    # ── Signal heads — all four approaches ────────────────────────────────
+    # ── Signal heads — 8 phases ────────────────────────────────
     sig_rows = ""
-    for d in ("north", "east", "south", "west"):
+    heads = ["north_straight", "north_turn", "south_straight", "south_turn",
+             "east_straight", "east_turn", "west_straight", "west_turn"]
+    for h in heads:
+        d, t = h.split("_")
         meta = DIR_META[d]
-        state = signal_state.get(d, "red")
-        is_next = d == pending
+        label = f"{meta['label']} {'(STR & LFT)' if t == 'straight' else '(R-TURN)'}"
+        state = signal_state.get(h, "red")
+        is_next = pending and h in PHASES.get(pending, [])
         if state == "green":
-            pill = f'<span style="color:{C["emerald"]};font-family:{F_DISPLAY};font-size:12px;letter-spacing:0.1em;">● CLEAR</span>'
+            pill = f'<span style="color:{C["emerald"]};font-family:{F_DISPLAY};font-size:11px;letter-spacing:0.1em;">START</span>'
             edge = f"border-left:3px solid {C['emerald']};"
             dim = ""
         elif state == "yellow":
-            pill = f'<span style="color:{C["topaz"]};font-family:{F_DISPLAY};font-size:12px;letter-spacing:0.1em;">● CLEARING</span>'
+            pill = f'<span style="color:{C["topaz"]};font-family:{F_DISPLAY};font-size:11px;letter-spacing:0.1em;">WAIT</span>'
+            edge = f"border-left:3px solid {C['topaz']};"
+            dim = ""
+        elif state == "flashing_red":
+            pill = f'<span style="color:{C["ruby"]};font-family:{F_DISPLAY};font-size:11px;letter-spacing:0.1em;animation:ss-flash 1s infinite alternate;">FLASH STOP</span>'
+            edge = f"border-left:3px solid {C['ruby']};"
+            dim = ""
+        elif state == "flashing_yellow":
+            pill = f'<span style="color:{C["topaz"]};font-family:{F_DISPLAY};font-size:11px;letter-spacing:0.1em;animation:ss-flash 1s infinite alternate;">FLASH WAIT</span>'
             edge = f"border-left:3px solid {C['topaz']};"
             dim = ""
         elif is_next:
-            pill = f'<span style="color:{C["gold"]};font-family:{F_DISPLAY};font-size:12px;letter-spacing:0.1em;">○ NEXT</span>'
+            pill = f'<span style="color:{C["gold"]};font-family:{F_DISPLAY};font-size:11px;letter-spacing:0.1em;">NEXT</span>'
             edge = f"border-left:3px dashed {C['gold']};"
             dim = ""
         else:
-            pill = f'<span style="color:{C["ruby"]};font-family:{F_DISPLAY};font-size:12px;letter-spacing:0.1em;">● HALTED</span>'
+            pill = f'<span style="color:{C["ruby"]};font-family:{F_DISPLAY};font-size:11px;letter-spacing:0.1em;">STOP</span>'
             edge = f"border-left:3px solid {C['ruby']};"
             dim = "opacity:.65;"
+            
+        light_icon = traffic_light_html(state if state else "red", scale=0.35, horizontal=True)
+            
         sig_rows += (
             f'<div style="display:flex;align-items:center;justify-content:space-between;'
-            f'padding:9px 12px;margin:6px 0;background:{C["bg"]};{edge}{dim}">'
-            f'<span style="font-family:{F_DISPLAY};font-size:13px;letter-spacing:0.12em;color:{C["text"]};">'
-            f'{meta["arrow"]}&nbsp; {meta["label"]}</span>{pill}</div>'
+            f'padding:6px 12px;margin:4px 0;background:{C["bg"]};{edge}{dim}">'
+            f'<div style="display:flex;align-items:center;gap:12px;">'
+            f'{light_icon}'
+            f'<span style="font-family:{F_DISPLAY};font-size:11px;letter-spacing:0.12em;color:{C["text"]};">'
+            f'{meta["arrow"]}&nbsp; {label}</span></div>{pill}</div>'
         )
     signal_card = (
         f'<div class="ss-card">{_card_title("Signal Heads")}{sig_rows}'
         f'<div style="font-size:9px;font-family:{F_BODY};color:{C["text-faint"]};margin-top:10px;line-height:1.6;text-transform:uppercase;letter-spacing:0.05em;">'
-        f'One approach released at a time · amber {YELLOW_TIME}s between phases · min green {MIN_GREEN_TIME}s.</div></div>'
+        f'One phase released at a time · amber {YELLOW_TIME}s between phases.</div></div>'
     )
 
     # ── Volume per approach ───────────────────────────────────────────────
-    max_c = max(dir_counts.values()) if dir_counts else 1
+    max_c = max([cd.get("vehicle", 0) for cd in counts_by_dir.values()]) if counts_by_dir else 1
     bars = ""
     for d in ("north", "east", "south", "west"):
-        c = dir_counts.get(d, 0)
+        c = counts_by_dir.get(d, {}).get("vehicle", 0) if counts_by_dir else 0
         pct = int(c / max_c * 100) if max_c else 0
+        
+        turn_html = ""
+        if counts_by_dir and d in counts_by_dir:
+            ct = counts_by_dir[d]
+            s = ct.get("vehicles_straight", 0)
+            l = ct.get("vehicles_left", 0)
+            r = ct.get("vehicles_right", 0)
+            if s > 0 or l > 0 or r > 0:
+                turn_html = (
+                    f'<div style="font-family:{F_BODY};font-size:9px;color:{C["text-faint"]};margin-top:4px;'
+                    f'letter-spacing:0.1em;display:flex;gap:8px;">'
+                    f'<span>↑ {s}</span><span>← {l}</span><span>→ {r}</span></div>'
+                )
+                
         bars += (
             f'<div style="display:flex;align-items:center;gap:12px;margin:10px 0;">'
             f'<span style="width:24px;font-family:{F_DISPLAY};font-size:14px;color:{C["gold"]};">{DIR_META[d]["arrow"]}</span>'
-            f'<div style="flex:1;height:4px;background:{C["bg"]};border:1px solid {C["border"]};">'
+            f'<div style="flex:1;">'
+            f'<div style="height:4px;background:{C["bg"]};border:1px solid {C["border"]};">'
             f'<div style="width:{pct}%;height:100%;background:{C["gold"]};transition:width .4s ease-out;"></div></div>'
+            f'{turn_html}</div>'
             f'<span style="width:30px;text-align:right;font-family:{F_BODY};font-size:14px;color:{C["text"]};">{c}</span></div>'
         )
     load_card = f'<div class="ss-card">{_card_title("Volume Tracking")}{bars}</div>'
 
     # ── Delay per approach ────────────────────────────────────────────────
     wcells = ""
-    for d in ("north", "east", "south", "west"):
-        w = dir_wait.get(d, 0.0)
+    for p in ("ns_straight", "ns_turn", "ew_straight", "ew_turn"):
+        w = dir_wait.get(p, 0.0)
         alert = w > 90
         b_color = C["gold"] if alert else C["border"]
         t_color = C["gold-light"] if alert else C["text-dim"]
+        p_label = "N-S STR" if p == "ns_straight" else "N-S TRN" if p == "ns_turn" else "E-W STR" if p == "ew_straight" else "E-W TRN"
         wcells += (f'<div style="flex:1;text-align:center;padding:10px 4px;background:{C["bg"]};'
-                   f'border:1px solid {b_color};"><div style="font-family:{F_DISPLAY};font-size:12px;color:{C["text-faint"]};">{DIR_META[d]["arrow"]}</div>'
+                   f'border:1px solid {b_color};"><div style="font-family:{F_DISPLAY};font-size:10px;color:{C["text-faint"]};">{p_label}</div>'
                    f'<div style="font-family:{F_BODY};font-size:16px;margin-top:3px;color:{t_color};">{w:.0f}s</div></div>')
     wait_card = (f'<div class="ss-card">{_card_title("Delay Metrics")}'
                  f'<div style="font-family:{F_BODY};font-size:9px;color:{C["text-faint"]};margin-bottom:10px;text-transform:uppercase;letter-spacing:0.1em;">STARVATION &gt; 90s</div>'
@@ -348,14 +417,16 @@ def decision_panel(dirs):
     dt = max(now - last, 0.05)
     st.session_state._last_decision_t = now
 
-    result = _get_flow().evaluate(counts_by_dir, dt)
+    op_mode = st.session_state.get("op_mode", "AUTO")
+    manual_dir = st.session_state.get("manual_dir", "north")
+    result = _get_flow().evaluate(counts_by_dir, dt, op_mode=op_mode, manual_dir=manual_dir)
 
     with ls.shared.lock:
         for d, s in result["signal_state"].items():
             ls.shared.signal[d] = s
         ls.shared.decision_result = result   # banner reads this
 
-    st.markdown(_decision_rail(result), unsafe_allow_html=True)
+    st.markdown(_decision_rail(result, counts_by_dir), unsafe_allow_html=True)
 
 @st.fragment(run_every=0.5)
 def decision_banner(dirs):
@@ -382,12 +453,33 @@ def decision_banner(dirs):
     yellow_timer = dec.get("yellow_timer", 0.0)
     meta = DIR_META.get(cur, {})
 
-    if phase == "yellow":
+    op_mode = st.session_state.get("op_mode", "AUTO")
+    if op_mode == "POWER_OUTAGE":
+        accent = C["ruby"]
+        headline = f'SYSTEM OFFLINE'
+        sub = f'POWER OUTAGE · ALL DIRECTIONS FLASHING RED'
+        pct = 100
+        big = f'PWR'
+    elif op_mode == "NIGHT":
+        accent = C["topaz"]
+        headline = f'NIGHT MODE'
+        sub = f'CAUTION · MAIN AMBER / MINOR RED'
+        pct = 100
+        big = f'NTE'
+    elif phase == "yellow":
         remaining = max(0.0, YELLOW_TIME - yellow_timer)
         accent = C["topaz"]
         headline = f'{meta.get("arrow","")} {meta.get("label","").upper()} — CLEARING'
         sub = f'AMBER · CHANGING TO {DIR_META.get(pending, {}).get("label","").upper()} · {remaining:.0f}s'
         pct = min(yellow_timer / YELLOW_TIME, 1.0) * 100
+        big = f'{remaining:.0f}s'
+    elif phase == "all_red":
+        all_red_timer = dec.get("all_red_timer", 0.0)
+        remaining = max(0.0, ALL_RED_TIME - all_red_timer)
+        accent = C["ruby"]
+        headline = f'ALL-RED CLEARANCE'
+        sub = f'CHANGING TO {DIR_META.get(pending, {}).get("label","").upper()} · {remaining:.0f}s'
+        pct = min(all_red_timer / ALL_RED_TIME, 1.0) * 100
         big = f'{remaining:.0f}s'
     else:
         remaining = max(0.0, MAX_HOLD_TIME - held)
@@ -465,7 +557,15 @@ def control_room() -> None:
             mode = st.radio("Origin", ["image", "video", "live"],
                             format_func=lambda m: {"image": "Archival", "video": "Motion", "live": "Live"}[m],
                             horizontal=True, key="cr_mode")
-            st.radio("Monitor Wall", ["2 × 2", "1 × 4", "4 × 1"], horizontal=True, key="feed_layout")
+            st.radio("Monitor Wall", ["Junction", "2 × 2", "1 × 4", "4 × 1"], horizontal=True, key="feed_layout")
+            
+        with st.container(border=True):
+            _rail_header("Operational Directives")
+            op_mode = st.radio("Signal Mode", ["AUTO", "NIGHT", "POWER_OUTAGE", "MANUAL"], 
+                               format_func=lambda m: {"AUTO": "Automatic", "NIGHT": "Night Mode (Flash)", "POWER_OUTAGE": "Power Outage", "MANUAL": "Police Override"}[m], 
+                               key="op_mode")
+            if op_mode == "MANUAL":
+                st.radio("Force Green", list(DIRECTIONS), format_func=lambda d: DIR_META[d]["label"], horizontal=True, key="manual_dir")
 
         with st.container(border=True):
             _rail_header("Transport")
@@ -536,25 +636,53 @@ def control_room() -> None:
             )
         else:
             decision_banner(avail)
-            layout = st.session_state.get("feed_layout", "2 × 2")
-            h = DOCK_HEIGHT = {"2 × 2": 36, "1 × 4": 36, "4 × 1": 17}
+            layout = st.session_state.get("feed_layout", "Junction")
+            h = {"Junction": 25, "2 × 2": 36, "1 × 4": 36, "4 × 1": 17}.get(layout, 36)
             port = st.session_state.get("mjpeg_port")
 
-            if layout == "2 × 2":
-                r1 = st.columns(2, gap="small")
-                r2 = st.columns(2, gap="small")
-                slots = [r1[0], r1[1], r2[0], r2[1]]
-            elif layout == "1 × 4":
-                slots = st.columns(max(len(avail), 1), gap="small")
+            if layout == "Junction":
+                r1 = st.columns([1.2,1.5,1.2], gap="small")
+                r2 = st.columns([1.5,2,1.5], gap="small")
+                r3 = st.columns([1.2,1.5,1.2], gap="small")
+                
+                with r2[1]:
+                    st.markdown(
+                        f'<div style="height:{h}vh;display:flex;align-items:center;justify-content:center;'
+                        f'border:1px dashed {C["border"]};background:{C["bg"]};">'
+                        f'<div style="text-align:center;">'
+                        f'<div style="width:14px;height:14px;transform:rotate(45deg);border:2px solid {C["gold"]};margin:0 auto 12px;box-shadow:0 0 12px {C["gold"]};"></div>'
+                        f'<div style="font-family:{F_DISPLAY};font-size:12px;letter-spacing:0.2em;color:{C["gold"]};">JUNCTION</div>'
+                        f'</div></div>', unsafe_allow_html=True
+                    )
+                    
+                rotations = {"north": 180, "south": 0, "west": 90, "east": -90}
+                for d in avail:
+                    slot = {"north": r1[1], "south": r3[1], "west": r2[0], "east": r2[2]}.get(d)
+                    if slot:
+                        with slot:
+                            if port:
+                                base_rot = st.session_state.config[d].get("rotation", 0)
+                                total_rot = (base_rot + rotations[d]) % 360
+                                st.markdown(_live_dock(d, port, h, total_rot), unsafe_allow_html=True)
+                            else:
+                                st.markdown(_idle_dock(d, h), unsafe_allow_html=True)
             else:
-                slots = [st.columns(1)[0] for _ in avail]
-
-            for i, d in enumerate(avail):
-                with slots[i % len(slots)]:
-                    if port:
-                        st.markdown(_live_dock(d, port, h), unsafe_allow_html=True)
-                    else:
-                        st.markdown(_idle_dock(d, h), unsafe_allow_html=True)
+                if layout == "2 × 2":
+                    r1 = st.columns(2, gap="small")
+                    r2 = st.columns(2, gap="small")
+                    slots = [r1[0], r1[1], r2[0], r2[1]]
+                elif layout == "1 × 4":
+                    slots = st.columns(max(len(avail), 1), gap="small")
+                else:
+                    slots = [st.columns(1)[0] for _ in avail]
+    
+                for i, d in enumerate(avail):
+                    with slots[i % len(slots)]:
+                        if port:
+                            base_rot = st.session_state.config[d].get("rotation", 0)
+                            st.markdown(_live_dock(d, port, h, base_rot), unsafe_allow_html=True)
+                        else:
+                            st.markdown(_idle_dock(d, h), unsafe_allow_html=True)
 
     # ══ RIGHT RAIL — DECISION TELEMETRY ══
     with right_col:
