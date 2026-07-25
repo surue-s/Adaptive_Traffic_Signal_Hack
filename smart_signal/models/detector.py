@@ -16,13 +16,13 @@ CATEGORY_MAP: Dict[str, str] = {
 
 
 @st.cache_resource
-def load_model(model_name: str = "yolov8n.pt", tracker: str = "botsort.yaml"):
+def load_model(model_name: str = "AUTA_Aerial_N_Rapid.pt", tracker: str = "botsort.yaml"):
     """Cached single instance — fine for main-thread use only."""
     from ultralytics import YOLO
     return YOLO(model_name)
 
 
-def load_model_fresh(model_name: str = "yolov8n.pt"):
+def load_model_fresh(model_name: str = "AUTA_Aerial_N_Rapid.pt"):
     """A dedicated YOLO instance with its own predictor + tracker.
 
     Each worker thread needs its own instance — concurrent .track() calls on a

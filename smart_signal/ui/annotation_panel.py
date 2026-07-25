@@ -182,8 +182,11 @@ def annotation_panel(direction: str) -> None:
     with a2:
         if st.button("◆ AUTO-DRAFT LANES", key=f"auto_{direction}", use_container_width=True):
             with st.spinner("Running detection model…"):
-                polys = auto_suggest_lanes(
-                    frame, st.session_state.get("model_name", "yolov8n.pt"), orientation)
+                try:
+                    polys = auto_suggest_lanes(
+                        frame, st.session_state.get("model_name", "AUTA_Aerial_N_Rapid.pt"), orientation)
+                except Exception:
+                    polys = []
             if not polys:
                 st.warning("No lane clusters found — ensure vehicles are visible, or draft manually.")
             else:

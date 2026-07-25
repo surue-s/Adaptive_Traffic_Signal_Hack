@@ -20,10 +20,10 @@ from video.sources import ImageSource, VideoSource, CameraSource
 MODE_LABEL = {"image": "STILL IMAGE", "video": "MOTION PICTURE", "live": "LIVE APPARATUS"}
 DOCK_HEIGHT = {"2 × 2": 40, "1 × 4": 40, "4 × 1": 19}
 MODEL_LABELS = {
-    "yolov8n.pt": "AUTA-Aerial N · Rapid",
-    "yolov8s.pt": "AUTA-Aerial S · Balanced",
-    "yolo11n.pt": "AUTA-Aerial N v2 · Swift",
-    "yolo11s.pt": "AUTA-Aerial S v2 · Precise",
+    "AUTA_Aerial_N_Rapid.pt": "AUTA-Aerial N · Rapid",
+    "AUTA_Aerial_S_Balanced.pt": "AUTA-Aerial S · Balanced",
+    "AUTA_Aerial_N_v2_Swift.pt": "AUTA-Aerial N v2 · Swift",
+    "AUTA_Aerial_S_v2_Precise.pt": "AUTA-Aerial S v2 · Precise",
 }
 TRACKER_LABELS = {"botsort.yaml": "BoT-SORT · STABLE", "bytetrack.yaml": "ByteTrack · RAPID"}
 
@@ -547,8 +547,7 @@ def control_room() -> None:
             _rail_header("Detection Array")
             model_name = st.selectbox("AUTA Detection Model", list(MODEL_LABELS),
                                       format_func=MODEL_LABELS.get, key="model_name")
-            tracker_name = st.selectbox("Tracking Protocol", list(TRACKER_LABELS),
-                                        format_func=TRACKER_LABELS.get, key="tracker_name")
+            tracker_name = "botsort.yaml"
             det_conf = st.slider("Precision Threshold", 0.10, 0.70, 0.25, 0.05, key="det_conf")
             imgsz = st.selectbox("Inference Resolution", [416, 640, 960], index=0, key="imgsz")
         current_key = (model_name, tracker_name, imgsz)

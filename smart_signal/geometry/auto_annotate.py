@@ -13,7 +13,7 @@ import numpy as np
 from models.detector import load_model_fresh, run_tracking
 
 
-def auto_suggest_lanes(frame: np.ndarray, model_name: str = "yolov8n.pt",
+def auto_suggest_lanes(frame: np.ndarray, model_name: str = "AUTA_Aerial_N_Rapid.pt",
                        orientation: str = "vertical", min_vehicles: int = 2) -> List[List[tuple]]:
     """Detect vehicles and cluster them into lane band polygons.
 
