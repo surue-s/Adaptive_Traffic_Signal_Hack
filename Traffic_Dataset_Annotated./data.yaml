@@ -1,0 +1,12 @@
+Test: Test.txt
+Train: Train.txt
+names:
+  0: Vehicle
+  1: Pedestrian
+  2: Zebra_Crossing
+  3: Lane
+  4: lane line
+  5: stop line
+  6: crossing guideline
+  7: zebra crossing
+path: .
